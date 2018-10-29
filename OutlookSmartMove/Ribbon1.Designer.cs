@@ -100,6 +100,8 @@
             // 
             this.folderBox.Label = "Folder";
             this.folderBox.Name = "folderBox";
+            this.folderBox.ShowLabel = false;
+            this.folderBox.SizeString = "Long example customer";
             this.folderBox.Text = null;
             // 
             // createButton

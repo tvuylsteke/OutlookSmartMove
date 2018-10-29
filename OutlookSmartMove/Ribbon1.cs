@@ -25,6 +25,10 @@ namespace OutlookSmartMove
                 string json = r.ReadToEnd();
                 customers = JsonConvert.DeserializeObject<List<OutlookSmartMove.Customer>>(json);                
             }
+            if (customers == null)
+            {
+                customers = new List<OutlookSmartMove.Customer>();
+            }
             moveButton.Enabled = false;
             moveOptions.Enabled = false;            
             folderBox.Text = null;            
@@ -83,7 +87,7 @@ namespace OutlookSmartMove
             {
                 foreach(string word in cust.Keywords)
                 {
-                    if (subject.Contains(word))
+                    if (subject.ToLower().Contains(word))
                     {
                         if (!matches.ContainsKey(cust.FolderName))
                         {
@@ -101,10 +105,14 @@ namespace OutlookSmartMove
                             matches.Add(cust.FolderName, "");
                         }
                     }
-                }                
+                }
             }
 
-            if(matches.Count == 1)
+            if (matches.Count == 0)
+            {
+                folderBox.Text = "No matches found";
+            }
+            else if(matches.Count == 1)
             {
                 foreach(string key in matches.Keys)
                 {
@@ -125,7 +133,8 @@ namespace OutlookSmartMove
                     item.Label = getFolderShortName(key);
                     item.Tag = key;
                     moveOptions.Items.Add(item);
-                }            
+                }
+                folderBox.Text = "Click Moves";
             }
         }
 
@@ -180,14 +189,15 @@ namespace OutlookSmartMove
             {
                 Outlook.MAPIFolder destFolder = GetFolder(customer, inBox.Folders);
                 this.currentItem.Move(destFolder);
-                folderBox.Text = null;
+                //folderBox.Text = null;
             }
             catch (Exception e)
             {
                 folderBox.Text = "Bad Folder";
             }
-            moveButton.Enabled = false;
-            moveOptions.Enabled = false;
+            //allow multiple moves
+            //moveButton.Enabled = false;
+            //moveOptions.Enabled = false;
         }
 
         private void detectButton_Click(object sender, RibbonControlEventArgs e)
@@ -204,7 +214,10 @@ namespace OutlookSmartMove
                 mailaddresses += r.Address;
                 mailaddresses += ",";
                 //Debug.WriteLine(r.Address);                        
-            }            
+            }
+
+            mailaddresses += mailItem.SenderEmailAddress;
+
             findCustomerFolder(mailItem.TaskSubject, mailaddresses);
 
             //testtje
@@ -215,7 +228,11 @@ namespace OutlookSmartMove
         private void gallery1_Click(object sender, RibbonControlEventArgs e)
         {
             RibbonDropDownItem item = moveOptions.SelectedItem;
-            moveCurrentItem((string)item.Tag);
+            folderBox.Text = item.Label;
+            folderBox.Tag = item.Tag;
+            moveOptions.Enabled = false;
+            //from before when moving right away
+            //moveCurrentItem((string)item.Tag);
             //MessageBox.Show("click");
         }
 

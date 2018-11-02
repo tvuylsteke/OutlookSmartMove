@@ -15,11 +15,12 @@ namespace OutlookSmartMove
 {
     public partial class Ribbon1
     {
-        List<OutlookSmartMove.Customer> customers;
+        
         
         private void Ribbon1_Load(object sender, RibbonUIEventArgs e)
-        {
-            string customerFile = @"c:\temp\customers.json";   
+        {            
+            customerFile = @"c:\temp\customers.json";
+            customerFolder = @"\\Thomas.Vuylsteke@microsoft.com\Inbox\FTA";
             using (StreamReader r = new StreamReader(customerFile))
             {
                 string json = r.ReadToEnd();
@@ -34,15 +35,22 @@ namespace OutlookSmartMove
             folderBox.Text = null;            
         }
 
-        private void updateCustomers(string Folder, string update, string updateType)
+        private void writeError(string err)
+        {
+            folderBox.Text = err;
+        }
+
+        private void updateCustomerInfo(string Folder, string update, string updateType)
         {
             bool newFolder = true;
             OutlookSmartMove.Customer target = new OutlookSmartMove.Customer(Folder);
             
+            //check list of known customers to see if the folder is in there already
             foreach (OutlookSmartMove.Customer cust in this.customers)
             {
                 if(cust.FolderName == Folder)
                 {
+                    //work with the customer we already have
                     target = cust;
                     newFolder = false;
                 }
@@ -63,81 +71,120 @@ namespace OutlookSmartMove
                     }
                     break;
                 default:
-                    folderBox.Text = "Error updating customers";
+                    writeError("Error updating customers");
                     break;
             }
 
             if (newFolder)
             {
-                this.customers.Add(target);
+                customers.Add(target);
             }
             //write file
-            using (StreamWriter file = File.CreateText(@"c:\temp\customers.json"))            
+            using (StreamWriter file = File.CreateText(customerFile))            
             {
                 JsonSerializer serializer = new JsonSerializer();
-                serializer.Serialize(file, this.customers);                
+                serializer.Serialize(file, customers);                
+            }
+        }
+
+        private void learnCustomerItem()
+        {            
+            Outlook.MAPIFolder parentFolder = currentItem.Parent as Outlook.MAPIFolder;
+            string currentItemFolder = parentFolder.FolderPath;
+
+            //building a list of suffixes from the current item
+            List<string> suffixes = new List<string>();
+            foreach (Outlook.Recipient r in currentItem.Recipients)
+            {
+                if (r.Address.Contains("@"))
+                {
+                    string suffix = "@" + r.Address.Split('@')[1];
+                    if (!suffixes.Contains(suffix))
+                    {
+                        suffixes.Add(suffix);
+                    }
+                }
+            }
+
+            //for optimization (does it make sense?) we do this as a separate step
+            //and only once per email suffix domain
+            foreach (string suffix in suffixes)
+            {
+                updateCustomerInfo(currentItemFolder, suffix, "email");
+            }
+
+            //Matching customer name in between the -
+            // e.g. Fast Track for Azure - Fabrikam - Follow up and Next Steps
+            Regex rx = new Regex(@".*[-](.*)[-].*", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+            MatchCollection matches = rx.Matches(currentItem.TaskSubject);           
+
+            string customer = "";
+            if (matches.Count == 1)
+            {
+                foreach (Match match in matches)
+                {
+                    GroupCollection groups = match.Groups;
+                    if (groups.Count == 2)
+                    {
+                        customer = groups[1].Value.Trim();
+                        updateCustomerInfo(currentItemFolder, customer, "keyword");
+                    }
+                }
             }
         }
 
         private void findCustomerFolder(string subject, string addresses)
         {
-            Hashtable matches = new Hashtable();
+            List<string> matches = new List<string>();
             //check each known customer in the config file
-            foreach (OutlookSmartMove.Customer cust in this.customers)
+            foreach (OutlookSmartMove.Customer cust in customers)
             {
                 foreach(string word in cust.Keywords)
                 {
-                    if (subject.ToLower().Contains(word))
+                    if (subject.ToLower().Contains(word) && !matches.Contains(cust.FolderName))
                     {
-                        if (!matches.ContainsKey(cust.FolderName))
-                        {
-                            matches.Add(cust.FolderName, "");
-                        }
+                        matches.Add(cust.FolderName);
                     }
                 }
 
                 foreach (string address in cust.EmailAddresses)
                 {
-                    if (addresses.Contains(address))
+                    if (addresses.Contains(address) && !matches.Contains(cust.FolderName))
                     {
-                        if (!matches.ContainsKey(cust.FolderName))
-                        {
-                            matches.Add(cust.FolderName, "");
-                        }
+                        matches.Add(cust.FolderName);
                     }
                 }
             }
 
-            if (matches.Count == 0)
+            switch (matches.Count)
             {
-                folderBox.Text = "No matches found";
-            }
-            else if(matches.Count == 1)
-            {
-                foreach(string key in matches.Keys)
-                {
-                    folderBox.Text = getFolderShortName(key);
-                    folderBox.Tag = key;
+                case 0:
+                    writeError("No matches found");
+                    break;
+                case 1:
+                    folderBox.Text = getFolderShortName(matches.First());
+                    folderBox.Tag = matches.First();
                     moveButton.Enabled = true;
                     moveOptions.Enabled = false;
-                }
-
-            }
-            else { 
-                foreach (string key in matches.Keys)
-                {
+                    break;
+                default:
                     moveOptions.Enabled = true;
                     moveButton.Enabled = false;
                     folderBox.Text = null;
-                    RibbonDropDownItem item = Globals.Factory.GetRibbonFactory().CreateRibbonDropDownItem();                    
-                    item.Label = getFolderShortName(key);
-                    item.Tag = key;
-                    moveOptions.Items.Add(item);
-                }
-                folderBox.Text = "Click Moves";
+                    foreach (string match in matches)
+                    {                     
+                        RibbonDropDownItem item = Globals.Factory.GetRibbonFactory().CreateRibbonDropDownItem();
+                        item.Label = getFolderShortName(match);
+                        item.Tag = match;
+                        moveOptions.Items.Add(item);
+                    }
+                    writeError("Click Moves");
+                    break;                
             }
         }
 
+        //in: "\\\\john.doe@contoso.com\\Inbox\\FTA\\Fabrikam"
+        //out: Fabrikam
         private string getFolderShortName(string folderPath)
         {
             string[] res = folderPath.Split('\\');
@@ -153,14 +200,23 @@ namespace OutlookSmartMove
                 object item = explorer.Selection[1];
                 if (item is Outlook.MailItem)
                 {
-                    this.currentItem = item as Outlook.MailItem;                    
-                    //Outlook.MailItem mailItem = item as Outlook.MailItem;
+                    this.currentItem = item as Outlook.MailItem;
                 }
             }            
         }
 
+        //in 
+        //  folderPath: "\\\\john.doe@contoso.com\\Inbox\\FTA\\Fabrikam"
+        //  folders" starting point to search below.
+        //      (Outlook.MAPIFolder)Globals.ThisAddIn.Application.ActiveExplorer().Session.GetDefaultFolder(Outlook.OlDefaultFolders.olFolderInbox);
+        //out reference to MAPIFolder
         private Outlook.MAPIFolder GetFolder(string folderPath, Outlook.Folders folders)
         {
+            if(folders == null)
+            {
+                Outlook.MAPIFolder inBox = (Outlook.MAPIFolder)Globals.ThisAddIn.Application.ActiveExplorer().Session.GetDefaultFolder(Outlook.OlDefaultFolders.olFolderInbox);
+                folders = inBox.Folders;
+            }
             string dir = folderPath.Substring(0, folderPath.Substring(4).IndexOf("\\") + 4);
             try
             {
@@ -180,197 +236,159 @@ namespace OutlookSmartMove
             catch { return null; }
         }
 
-        private void moveCurrentItem(string customer)
+        //only searches one level deep!
+        private void searchFolder(string query, Outlook.Folders folders)
         {
-            Outlook.MAPIFolder inBox = (Outlook.MAPIFolder)Globals.ThisAddIn.Application.ActiveExplorer().Session.GetDefaultFolder(Outlook.OlDefaultFolders.olFolderInbox);
-            //Outlook.MAPIFolder temp = inBox.Folders["FTA"];           
+            if (folders == null)
+            {
+                Outlook.MAPIFolder inBox = (Outlook.MAPIFolder)Globals.ThisAddIn.Application.ActiveExplorer().Session.GetDefaultFolder(Outlook.OlDefaultFolders.olFolderInbox);
+                folders = inBox.Folders;
+            }           
 
+            Hashtable res = new Hashtable();
+            foreach (Outlook.MAPIFolder folder in folders)
+            {
+                if (folder.Name.ToLower().Contains(query))
+                {
+                    res[folder.Name] = folder.FolderPath;
+                }
+            }           
+
+            switch (res.Keys.Count)
+            {
+                case 0:
+                    writeError("Folder not found");
+                    break;
+                case 1:
+                    //there's only 1, but not sure if there's a better way to get it.
+                    foreach (string key in res.Keys)
+                    {
+                        folderBox.Text = key;
+                        folderBox.Tag = res[key];
+                        moveButton.Enabled = true;
+                        moveOptions.Enabled = false;
+                    }
+                    break;
+                default:
+                    moveOptions.Enabled = true;                    
+                    moveButton.Enabled = false;
+                    moveOptions.Items.Clear();
+                    folderBox.Text = null;
+                    foreach (string key in res.Keys)
+                    {
+                        RibbonDropDownItem item = Globals.Factory.GetRibbonFactory().CreateRibbonDropDownItem();
+                        item.Label = key;
+                        item.Tag = res[key];
+                        moveOptions.Items.Add(item);
+                    }
+                    break;
+            }
+        }
+
+        //in 
+        //  folder: "Fabrikam"
+        //  folders" starting point to create below.
+        //      (Outlook.MAPIFolder)Globals.ThisAddIn.Application.ActiveExplorer().Session.GetDefaultFolder(Outlook.OlDefaultFolders.olFolderInbox);
+        //out reference to MAPIFolder
+        private void createFolder(string folder, Outlook.Folders folders)
+        {
+            if (folders == null)
+            {
+                Outlook.MAPIFolder inBox = (Outlook.MAPIFolder)Globals.ThisAddIn.Application.ActiveExplorer().Session.GetDefaultFolder(Outlook.OlDefaultFolders.olFolderInbox);
+                folders = inBox.Folders;
+            }                        
+
+            Outlook.MAPIFolder customFolder = null;
             try
             {
-                Outlook.MAPIFolder destFolder = GetFolder(customer, inBox.Folders);
-                this.currentItem.Move(destFolder);
-                //folderBox.Text = null;
+                customFolder = (Outlook.MAPIFolder)folders.Add(folder, Outlook.OlDefaultFolders.olFolderInbox);
+                folderBox.Text = null;
             }
-            catch (Exception e)
+            catch (Exception ex)
             {
-                folderBox.Text = "Bad Folder";
+                writeError("Error creating folder");
+            }          
+        }
+
+        //in customerFolder: "\\\\john.doe@contoso.com\\Inbox\\FTA\\Fabrikam"
+        private void moveCurrentItem(string customerFolder)
+        {            
+            try
+            {                 
+                this.currentItem.Move(GetFolder(customerFolder, null));               
             }
-            //allow multiple moves
-            //moveButton.Enabled = false;
-            //moveOptions.Enabled = false;
+            catch (Exception ex)
+            {
+                writeError("Bad Folder");
+            }            
         }
 
         private void detectButton_Click(object sender, RibbonControlEventArgs e)
         {
             initializeCurrentItem();
             folderBox.Text = null;
-            moveOptions.Items.Clear();         
-
-            Outlook.MailItem mailItem = this.currentItem;           
-            string mailaddresses = "";                    
-
-            foreach(Outlook.Recipient r in mailItem.Recipients)
+            moveOptions.Items.Clear();
+            
+            //convert the list of recipients to one long string which will use to check if the email address sufix is part of it
+            string mailaddresses = "";
+            foreach(Outlook.Recipient r in currentItem.Recipients)
             {
-                mailaddresses += r.Address;
-                mailaddresses += ",";
-                //Debug.WriteLine(r.Address);                        
+                mailaddresses += r.Address + ",";                      
             }
-
-            mailaddresses += mailItem.SenderEmailAddress;
-
-            findCustomerFolder(mailItem.TaskSubject, mailaddresses);
-
-            //testtje
-            //Outlook.MAPIFolder inBox = (Outlook.MAPIFolder)Globals.ThisAddIn.Application.ActiveExplorer().Session.GetDefaultFolder(Outlook.OlDefaultFolders.olFolderInbox);
-            //Outlook.MAPIFolder mf = GetFolder(folderBox.Text, inBox.Folders);            
+            //also include the sender address
+            mailaddresses += currentItem.SenderEmailAddress;
+            //try to match the mailItem based on it's subject and the string of email addresses
+            findCustomerFolder(currentItem.TaskSubject, mailaddresses);            
         }
 
+        //Clicking one of the options, when multiple are provided, will simply set it as active.
+        //At the same time it will disable the control.
         private void gallery1_Click(object sender, RibbonControlEventArgs e)
         {
             RibbonDropDownItem item = moveOptions.SelectedItem;
             folderBox.Text = item.Label;
             folderBox.Tag = item.Tag;
             moveOptions.Enabled = false;
-            //from before when moving right away
-            //moveCurrentItem((string)item.Tag);
-            //MessageBox.Show("click");
-        }
-
-        private Outlook.MailItem currentItem
-        {
-            get;
-            set;
+            moveButton.Enabled = true;            
         }
 
         private void moveButton_Click(object sender, RibbonControlEventArgs e)
         {
-            moveCurrentItem((string)folderBox.Tag);            
+            moveCurrentItem((string)folderBox.Tag);
+            initializeCurrentItem();
         }
 
         private void learnButton_Click(object sender, RibbonControlEventArgs e)
         {
             initializeCurrentItem();
-
-            Outlook.MailItem mailItem = this.currentItem;
-            Outlook.MAPIFolder parentFolder = mailItem.Parent as Outlook.MAPIFolder;
-            string FolderLocation = parentFolder.FolderPath;
-
-            Hashtable suffixes = new Hashtable();
-
-            foreach (Outlook.Recipient r in mailItem.Recipients)
-            {
-                if (r.Address.Contains("@"))
-                {
-                    string suffix = "@" + r.Address.Split('@')[1];
-                    if (!suffixes.ContainsKey(suffix)){
-                        suffixes.Add(suffix, "");
-                    }
-                }                           
-            }
-
-            foreach(string suffix in suffixes.Keys)
-            {
-                updateCustomers(FolderLocation, suffix, "email");
-            }
-
-            //Matching customer name in between the -
-            Regex rx = new Regex(@".*[-](.*)[-].*", RegexOptions.Compiled | RegexOptions.IgnoreCase);
-            MatchCollection matches = rx.Matches(mailItem.TaskSubject);
-
-            string customer = "";
-
-            if(matches.Count == 1)
-            {
-                foreach (Match match in matches)
-                {
-                    GroupCollection groups = match.Groups;
-                    if(groups.Count == 2)
-                    {
-                        customer = groups[1].Value.Trim();
-                        updateCustomers(FolderLocation, customer, "keyword");
-                    }                    
-                }
-            }          
-
-            //ShowMyDialogBox();
-
-            //Outlook.MAPIFolder inBox = (Outlook.MAPIFolder)Globals.ThisAddIn.Application.ActiveExplorer().Session.GetDefaultFolder(Outlook.OlDefaultFolders.olFolderInbox);
-            //Outlook.MAPIFolder temp = inBox.Folders["FTA"];
+            learnCustomerItem();               
         }               
    
         private void createButton_Click(object sender, RibbonControlEventArgs e)
         {
-            Outlook.MAPIFolder inBox = (Outlook.MAPIFolder)Globals.ThisAddIn.Application.ActiveExplorer().Session.GetDefaultFolder(Outlook.OlDefaultFolders.olFolderInbox);
-            Outlook.MAPIFolder FTA = inBox.Folders["FTA"];
-
-            Outlook.MAPIFolder customFolder = null;
-            try
-            {
-                customFolder = (Outlook.MAPIFolder)FTA.Folders.Add(folderBox.Text, Outlook.OlDefaultFolders.olFolderInbox);
-                folderBox.Text = null;
-            }
-            catch (Exception ex)
-            {
-                folderBox.Text = "Error creating folder";
-            }
-
-
+            createFolder(folderBox.Text, GetFolder(customerFolder, null).Folders);
         }
 
         private void searchButton_Click(object sender, RibbonControlEventArgs e)
         {
             initializeCurrentItem();
-            Outlook.MAPIFolder inBox = (Outlook.MAPIFolder)Globals.ThisAddIn.Application.ActiveExplorer().Session.GetDefaultFolder(Outlook.OlDefaultFolders.olFolderInbox);
-            Outlook.MAPIFolder FTA = inBox.Folders["FTA"];
-            Hashtable res = new Hashtable();
-            foreach (Outlook.MAPIFolder folder in FTA.Folders)
-            {
-                if (folder.Name.ToLower().Contains(folderBox.Text.ToLower())) {
-                    res[folder.Name] = folder.FolderPath;
-                }
-            }
 
-            if (res.Keys.Count == 0)
-            {
-                folderBox.Text = "Folder not found";
-            }
-            else if (res.Keys.Count == 1)
-            {
-                foreach (string key in res.Keys)
-                {
-                    folderBox.Text = key;
-                    folderBox.Tag = res[key];
-                    moveButton.Enabled = true;
-                    moveOptions.Enabled = false;
-                }
-            }
-            else
-            {
-                foreach (string key in res.Keys)
-                {
-                    moveOptions.Enabled = true;
-                    moveButton.Enabled = false;
-                    folderBox.Text = null;
-                    RibbonDropDownItem item = Globals.Factory.GetRibbonFactory().CreateRibbonDropDownItem();
-                    item.Label = key;
-                    item.Tag = res[key];
-                    moveOptions.Items.Add(item);
-                }
-            }
+            //search below the customer folder
+            Outlook.MAPIFolder customerFolders = GetFolder(customerFolder, null);
+            searchFolder(folderBox.Text.ToLower(), customerFolders.Folders);             
         }
 
         private void focusButton_Click(object sender, RibbonControlEventArgs e)
         {
             try
-            {
-                Outlook.MAPIFolder inBox = (Outlook.MAPIFolder)Globals.ThisAddIn.Application.ActiveExplorer().Session.GetDefaultFolder(Outlook.OlDefaultFolders.olFolderInbox);
-                Outlook.MAPIFolder destFolder = GetFolder((string)folderBox.Tag, inBox.Folders);
+            {                
+                Outlook.MAPIFolder destFolder = GetFolder((string)folderBox.Tag, null);
                 Globals.ThisAddIn.Application.ActiveExplorer().Activate();
                 Globals.ThisAddIn.Application.ActiveExplorer().CurrentFolder = destFolder;
             }
             catch(Exception ex)
             {
-                folderBox.Text = "Error focussing";
+                writeError("Error focussing");
             }
         }
 
@@ -384,8 +402,22 @@ namespace OutlookSmartMove
             }
             catch (Exception ex)
             {
-                folderBox.Text = "Error going inbox";
+                writeError("Error going inbox");
             }
         }
+
+        private void folderBox_TextChanged(object sender, RibbonControlEventArgs e)
+        {
+            initializeCurrentItem();
+
+            //search below the customer folder
+            Outlook.MAPIFolder customerFolders = GetFolder(customerFolder, null);
+            searchFolder(folderBox.Text.ToLower(), customerFolders.Folders);
+        }
+
+        private Outlook.MailItem currentItem { get; set; }
+        private List<OutlookSmartMove.Customer> customers { get; set; }
+        private string customerFile { get; set; }
+        private string customerFolder { get; set; }
     }
 }

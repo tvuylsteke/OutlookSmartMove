@@ -103,6 +103,7 @@
             this.folderBox.ShowLabel = false;
             this.folderBox.SizeString = "Long example customer";
             this.folderBox.Text = null;
+            this.folderBox.TextChanged += new Microsoft.Office.Tools.Ribbon.RibbonControlEventHandler(this.folderBox_TextChanged);
             // 
             // createButton
             // 

@@ -10,6 +10,7 @@ using System.IO;
 using System.Windows.Forms;
 using System.Collections;
 using System.Text.RegularExpressions;
+using System.Drawing;
 
 namespace OutlookSmartMove
 {
@@ -37,7 +38,7 @@ namespace OutlookSmartMove
 
         private void writeError(string err)
         {
-            folderBox.Text = err;
+            MessageBox.Show(err);
         }
 
         private void updateCustomerInfo(string Folder, string update, string updateType)
@@ -258,6 +259,7 @@ namespace OutlookSmartMove
             {
                 case 0:
                     writeError("Folder not found");
+                    //searchButton.Image = new Bitmap(Properties.Resources.foundNot);
                     break;
                 case 1:
                     //there's only 1, but not sure if there's a better way to get it.
@@ -267,13 +269,16 @@ namespace OutlookSmartMove
                         folderBox.Tag = res[key];
                         moveButton.Enabled = true;
                         moveOptions.Enabled = false;
+                        //searchButton.Image = new Bitmap(Properties.Resources.foundOk);
                     }
                     break;
                 default:
                     moveOptions.Enabled = true;                    
                     moveButton.Enabled = false;
                     moveOptions.Items.Clear();
-                    folderBox.Text = null;
+                    //clearing the field triggers the folderBox_TextChanged option as well!
+                    //folderBox.Text = null;
+                    //searchButton.Image = new Bitmap(Properties.Resources.foundOk);
                     foreach (string key in res.Keys)
                     {
                         RibbonDropDownItem item = Globals.Factory.GetRibbonFactory().CreateRibbonDropDownItem();
@@ -290,18 +295,18 @@ namespace OutlookSmartMove
         //  folders" starting point to create below.
         //      (Outlook.MAPIFolder)Globals.ThisAddIn.Application.ActiveExplorer().Session.GetDefaultFolder(Outlook.OlDefaultFolders.olFolderInbox);
         //out reference to MAPIFolder
-        private void createFolder(string folder, Outlook.Folders folders)
+        private void createFolder(string folder, Outlook.MAPIFolder MAPIfolder)
         {
+            Outlook.Folders folders = MAPIfolder.Folders;
             if (folders == null)
             {
                 Outlook.MAPIFolder inBox = (Outlook.MAPIFolder)Globals.ThisAddIn.Application.ActiveExplorer().Session.GetDefaultFolder(Outlook.OlDefaultFolders.olFolderInbox);
                 folders = inBox.Folders;
             }                        
-
-            Outlook.MAPIFolder customFolder = null;
+            
             try
             {
-                customFolder = (Outlook.MAPIFolder)folders.Add(folder, Outlook.OlDefaultFolders.olFolderInbox);
+                folders.Add(folder, Outlook.OlDefaultFolders.olFolderInbox);
                 folderBox.Text = null;
             }
             catch (Exception ex)
@@ -354,8 +359,8 @@ namespace OutlookSmartMove
 
         private void moveButton_Click(object sender, RibbonControlEventArgs e)
         {
-            moveCurrentItem((string)folderBox.Tag);
             initializeCurrentItem();
+            moveCurrentItem((string)folderBox.Tag);            
         }
 
         private void learnButton_Click(object sender, RibbonControlEventArgs e)
@@ -366,7 +371,8 @@ namespace OutlookSmartMove
    
         private void createButton_Click(object sender, RibbonControlEventArgs e)
         {
-            createFolder(folderBox.Text, GetFolder(customerFolder, null).Folders);
+            Outlook.MAPIFolder customerMapiFolder = GetFolder(customerFolder, null);
+            createFolder(folderBox.Text, customerMapiFolder);
         }
 
         private void searchButton_Click(object sender, RibbonControlEventArgs e)

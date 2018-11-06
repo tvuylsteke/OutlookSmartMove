@@ -179,7 +179,7 @@ namespace OutlookSmartMove
                         item.Tag = match;
                         moveOptions.Items.Add(item);
                     }
-                    writeError("Click Moves");
+                    //writeError("Click Moves");
                     break;                
             }
         }

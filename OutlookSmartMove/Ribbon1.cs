@@ -107,6 +107,15 @@ namespace OutlookSmartMove
                 }
             }
 
+            if (currentItem.SenderEmailAddress.Contains("@"))
+            {
+                string suffix = "@" + currentItem.SenderEmailAddress.Split('@')[1];
+                if (!suffixes.Contains(suffix))
+                {
+                    suffixes.Add(suffix);
+                }
+            }
+
             //for optimization (does it make sense?) we do this as a separate step
             //and only once per email suffix domain
             foreach (string suffix in suffixes)

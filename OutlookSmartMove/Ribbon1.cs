@@ -20,7 +20,7 @@ namespace OutlookSmartMove
         
         private void Ribbon1_Load(object sender, RibbonUIEventArgs e)
         {            
-            customerFile = @"c:\temp\customers.json";
+            customerFile = @"C:\Users\thovuy\OneDrive - Microsoft\FTE\SmartMove\customers.json";
             customerFolder = @"\\Thomas.Vuylsteke@microsoft.com\Inbox\FTA";
             using (StreamReader r = new StreamReader(customerFile))
             {
